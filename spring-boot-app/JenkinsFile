@@ -1,68 +1,133 @@
+/*
+  Jenkins Declarative Pipeline for:
+  - Cloning your GitHub repo
+  - Building Spring Boot app with Maven
+  - Running SonarQube analysis
+  - Building & pushing Docker image to Azure Container Registry (ACR)
+
+  REQUIREMENTS (already done by you):
+  - Jenkins plugins: Git, Pipeline, Docker Pipeline, Credentials Binding, SonarQube Scanner
+  - SonarQube running at: http://20.220.31.252:9000
+  - ACR name: ayushacr  → login server: ayushacr.azurecr.io
+  - Jenkins credentials:
+      ID: "sonarqube"  → Secret text (Sonar user token)
+      ID: "acr-cred"   → Username & password (ACR admin user)
+*/
+
 pipeline {
+
+  // Use a Docker agent that already has Maven + Docker CLI installed
   agent {
     docker {
       image 'abhishekf5/maven-abhishek-docker-agent:v1'
-      args '--user root -v /var/run/docker.sock:/var/run/docker.sock' // mount Docker socket to access the host's Docker daemon
+      // run container as root and mount host Docker socket so
+      // Jenkins inside container can build and push Docker images
+      args '--user root -v /var/run/docker.sock:/var/run/docker.sock'
     }
   }
+
+  // Global environment variables for this pipeline
+  environment {
+
+    // SonarQube URL (your Sonar server)
+    SONAR_URL        = 'http://20.220.31.252:9000'
+
+    // Azure Container Registry configuration
+    ACR_LOGIN_SERVER = 'ayushacr.azurecr.io'  // ayushacr = your registry name
+    ACR_REPO         = 'springboot-app'       // image repository name inside ACR
+
+    // Final image name → ayushacr.azurecr.io/springboot-app:<build_number>
+    DOCKER_IMAGE     = "${ACR_LOGIN_SERVER}/${ACR_REPO}:${BUILD_NUMBER}"
+  }
+
   stages {
+
     stage('Checkout') {
       steps {
-        sh 'echo passed'
-        //git branch: 'main', url: 'https://github.com/iam-veeramalla/Jenkins-Zero-To-Hero.git'
+        // If your Jenkins job is already configured with SCM (Git),
+        // you can comment out this git step. It’s here for safety.
+        git branch: 'main', url: 'https://github.com/Ayush3366/Project1BC.git'
+
+        // Just to see the files and structure in the Jenkins log
+        sh 'echo "=== CHECKOUT COMPLETE, LISTING FILES ==="; ls -R'
       }
     }
-    stage('Build and Test') {
+
+    stage('Build & Test') {
       steps {
-        sh 'ls -ltr'
-        // build the project and create a JAR file
-        sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && mvn clean package'
+        // Go inside the Spring Boot project folder and run Maven build.
+        // Adjust "spring-boot-app" if your folder name is different.
+        sh '''
+          echo "=== BUILD & TEST STAGE STARTED ==="
+          cd spring-boot-app
+          mvn clean package
+          echo "=== BUILD & TEST STAGE COMPLETED ==="
+        '''
       }
     }
-    stage('Static Code Analysis') {
-      environment {
-        SONAR_URL = "http://34.201.116.83:9000"
-      }
+
+    stage('Static Code Analysis (SonarQube)') {
       steps {
+        // Pull Sonar token from Jenkins credentials (ID: sonarqube)
+        // and expose it inside the shell as $SONAR_AUTH_TOKEN
         withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
-          sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=${SONAR_URL}'
+          sh '''
+            echo "=== SONARQUBE ANALYSIS STAGE STARTED ==="
+            cd spring-boot-app
+
+            # Run Maven Sonar plugin with:
+            # - sonar.login → your token from Jenkins creds
+            # - sonar.host.url → your SonarQube server URL
+            mvn sonar:sonar \
+              -Dsonar.login=$SONAR_AUTH_TOKEN \
+              -Dsonar.host.url=${SONAR_URL}
+
+            echo "=== SONARQUBE ANALYSIS STAGE COMPLETED ==="
+          '''
         }
       }
     }
-    stage('Build and Push Docker Image') {
-      environment {
-        DOCKER_IMAGE = "abhishekf5/ultimate-cicd:${BUILD_NUMBER}"
-        // DOCKERFILE_LOCATION = "java-maven-sonar-argocd-helm-k8s/spring-boot-app/Dockerfile"
-        REGISTRY_CREDENTIALS = credentials('docker-cred')
-      }
+
+    stage('Build & Push Docker Image to ACR') {
       steps {
         script {
-            sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && docker build -t ${DOCKER_IMAGE} .'
-            def dockerImage = docker.image("${DOCKER_IMAGE}")
-            docker.withRegistry('https://index.docker.io/v1/', "docker-cred") {
-                dockerImage.push()
-            }
+
+          // Build Docker image from Dockerfile in spring-boot-app directory
+          sh '''
+            echo "=== DOCKER BUILD STAGE STARTED ==="
+            cd spring-boot-app
+            docker build -t ${DOCKER_IMAGE} .
+            echo "=== DOCKER BUILD STAGE COMPLETED ==="
+          '''
+
+          // Create a handle to the built image
+          def dockerImage = docker.image("${DOCKER_IMAGE}")
+
+          // Log in to ACR and push the image
+          // "acr-cred" → Jenkins credential with ACR username & password
+          docker.withRegistry("https://${ACR_LOGIN_SERVER}", "acr-cred") {
+            echo "=== PUSHING IMAGE TO ACR: ${DOCKER_IMAGE} ==="
+            dockerImage.push()
+            echo "=== IMAGE PUSHED SUCCESSFULLY TO ACR ==="
+          }
         }
       }
     }
-    stage('Update Deployment File') {
-        environment {
-            GIT_REPO_NAME = "Jenkins-Zero-To-Hero"
-            GIT_USER_NAME = "iam-veeramalla"
-        }
-        steps {
-            withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
-                sh '''
-                    git config user.email "abhishek.xyz@gmail.com"
-                    git config user.name "Abhishek Veeramalla"
-                    BUILD_NUMBER=${BUILD_NUMBER}
-                    sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
-                    git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
-                    git commit -m "Update deployment image to version ${BUILD_NUMBER}"
-                    git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
-                '''
-            }
-        }
+
+    // Later you can add more stages here:
+    // - Deploy to AKS
+    // - Trigger ArgoCD
+    // - Run integration tests, etc.
+  }
+
+  // Optional: post actions (cleanup, notifications, etc.)
+  post {
+    success {
+      echo "✅ Pipeline completed successfully! Image: ${DOCKER_IMAGE}"
+    }
+    failure {
+      echo "❌ Pipeline failed. Check logs above for the failing stage."
     }
   }
 }
+
