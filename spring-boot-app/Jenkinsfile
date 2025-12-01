@@ -1,39 +1,22 @@
 /*
   Jenkins Declarative Pipeline for:
-  - Cloning your GitHub repo
-  - Building Spring Boot app with Maven
-  - Running SonarQube analysis
-  - Building & pushing Docker image to Azure Container Registry (ACR)
-
-  REQUIREMENTS (already done by you):
-  - Jenkins plugins: Git, Pipeline, Docker Pipeline, Credentials Binding, SonarQube Scanner
-  - SonarQube running at: http://20.220.31.252:9000
-  - ACR name: ayushacr  → login server: ayushacr.azurecr.io
-  - Jenkins credentials:
-      ID: "sonarqube"  → Secret text (Sonar user token)
-      ID: "acr-cred"   → Username & password (ACR admin user)
+  CI + SonarQube + Docker Build + Push to ACR
 */
 
 pipeline {
 
-  // Use a Docker agent that already has Maven + Docker CLI installed
+  // Docker agent with Maven + Java 17 + Docker CLI
   agent {
     docker {
-        image 'maven:3.9.6-eclipse-temurin-17-docker'
+        image 'maven:3.9.6-eclipse-temurin-17'
         args '-v /var/run/docker.sock:/var/run/docker.sock'
     }
 }
-  // Global environment variables for this pipeline
+
   environment {
-
-    // SonarQube URL (your Sonar server)
     SONAR_URL        = 'http://20.220.31.252:9000'
-
-    // Azure Container Registry configuration
-    ACR_LOGIN_SERVER = 'ayushacr.azurecr.io'  // ayushacr = your registry name
-    ACR_REPO         = 'springboot-app'       // image repository name inside ACR
-
-    // Final image name → ayushacr.azurecr.io/springboot-app:<build_number>
+    ACR_LOGIN_SERVER = 'ayushacr.azurecr.io'
+    ACR_REPO         = 'springboot-app'
     DOCKER_IMAGE     = "${ACR_LOGIN_SERVER}/${ACR_REPO}:${BUILD_NUMBER}"
   }
 
@@ -41,19 +24,13 @@ pipeline {
 
     stage('Checkout') {
       steps {
-        // If your Jenkins job is already configured with SCM (Git),
-        // you can comment out this git step. It’s here for safety.
         git branch: 'main', url: 'https://github.com/Ayush3366/Project1BC.git'
-
-        // Just to see the files and structure in the Jenkins log
-        sh 'echo "=== CHECKOUT COMPLETE, LISTING FILES ==="; ls -R'
+        sh 'echo "=== CHECKOUT COMPLETE ==="; ls -R'
       }
     }
 
     stage('Build & Test') {
       steps {
-        // Go inside the Spring Boot project folder and run Maven build.
-        // Adjust "spring-boot-app" if your folder name is different.
         sh '''
           echo "=== BUILD & TEST STAGE STARTED ==="
           cd spring-boot-app
@@ -65,20 +42,13 @@ pipeline {
 
     stage('Static Code Analysis (SonarQube)') {
       steps {
-        // Pull Sonar token from Jenkins credentials (ID: sonarqube)
-        // and expose it inside the shell as $SONAR_AUTH_TOKEN
         withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
           sh '''
             echo "=== SONARQUBE ANALYSIS STAGE STARTED ==="
             cd spring-boot-app
-
-            # Run Maven Sonar plugin with:
-            # - sonar.login → your token from Jenkins creds
-            # - sonar.host.url → your SonarQube server URL
             mvn sonar:sonar \
               -Dsonar.login=$SONAR_AUTH_TOKEN \
               -Dsonar.host.url=${SONAR_URL}
-
             echo "=== SONARQUBE ANALYSIS STAGE COMPLETED ==="
           '''
         }
@@ -88,8 +58,6 @@ pipeline {
     stage('Build & Push Docker Image to ACR') {
       steps {
         script {
-
-          // Build Docker image from Dockerfile in spring-boot-app directory
           sh '''
             echo "=== DOCKER BUILD STAGE STARTED ==="
             cd spring-boot-app
@@ -97,34 +65,20 @@ pipeline {
             echo "=== DOCKER BUILD STAGE COMPLETED ==="
           '''
 
-          // Create a handle to the built image
           def dockerImage = docker.image("${DOCKER_IMAGE}")
 
-          // Log in to ACR and push the image
-          // "acr-cred" → Jenkins credential with ACR username & password
           docker.withRegistry("https://${ACR_LOGIN_SERVER}", "acr-cred") {
-            echo "=== PUSHING IMAGE TO ACR: ${DOCKER_IMAGE} ==="
+            echo "=== PUSHING IMAGE TO ACR ==="
             dockerImage.push()
-            echo "=== IMAGE PUSHED SUCCESSFULLY TO ACR ==="
+            echo "=== IMAGE PUSHED SUCCESSFULLY ==="
           }
         }
       }
     }
-
-    // Later you can add more stages here:
-    // - Deploy to AKS
-    // - Trigger ArgoCD
-    // - Run integration tests, etc.
   }
 
-  // Optional: post actions (cleanup, notifications, etc.)
   post {
-    success {
-      echo "✅ Pipeline completed successfully! Image: ${DOCKER_IMAGE}"
-    }
-    failure {
-      echo "❌ Pipeline failed. Check logs above for the failing stage."
-    }
+    success { echo "✅ Pipeline completed successfully! Image: ${DOCKER_IMAGE}" }
+    failure { echo "❌ Pipeline failed. Check logs above." }
   }
 }
-
