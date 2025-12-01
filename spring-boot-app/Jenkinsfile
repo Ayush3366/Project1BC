@@ -13,6 +13,7 @@ pipeline {
     }
 }
 
+
   environment {
     SONAR_URL        = 'http://20.220.31.252:9000'
     ACR_LOGIN_SERVER = 'ayushacr.azurecr.io'
@@ -55,6 +56,17 @@ pipeline {
       }
     }
 
+      stage('Install Docker CLI in Container') {
+          steps {
+              sh '''
+                  echo "=== INSTALLING DOCKER CLI ==="
+                  apt-get update
+                  apt-get install -y docker.io
+              '''
+          }
+      }
+
+    
     stage('Build & Push Docker Image to ACR') {
       steps {
         script {
