@@ -1,11 +1,12 @@
 pipeline {
 
-  agent {
+ agent {
     docker {
-        image 'maven:3.9.6-eclipse-temurin-17'
-        args '-v /var/run/docker.sock:/var/run/docker.sock'
+        image 'maven:3.8.7-eclipse-temurin-17-focal'
+        args '-v /var/run/docker.sock:/var/run/docker.sock -u root'
     }
-  }
+}
+
 
   environment {
     SONAR_URL        = 'http://20.220.31.252:9000'
