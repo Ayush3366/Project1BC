@@ -19,7 +19,7 @@ pipeline {
   // Use a Docker agent that already has Maven + Docker CLI installed
   agent {
     docker {
-      image 'maven:3.9.6-eclipse-temurin-17'
+      image 'maven:3.9.6-eclipse-temurin-17-docker'
       // run container as root and mount host Docker socket so
       // Jenkins inside container can build and push Docker images
       args '-v /var/run/docker.sock:/var/run/docker.sock'
