@@ -16,6 +16,6 @@ spec:
     spec:
       containers:
       - name: spring-boot-app
-        image: ayushacr.azurecr.io/springboot-app:latest
+        image: ayushacr.azurecr.io/springboot-app:17
         ports:
         - containerPort: 8080
