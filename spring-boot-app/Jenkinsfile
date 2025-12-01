@@ -1,19 +1,11 @@
-/*
-  Jenkins Declarative Pipeline for:
-  CI + SonarQube + Docker Build + Push to ACR
-*/
-
 pipeline {
 
-  // Docker agent with Maven + Java 17 + Docker CLI
   agent {
     docker {
-        image 'maven:3.9.6-eclipse-temurin-17-docker'
+        image 'maven:3.9.6-eclipse-temurin-17'
         args '-v /var/run/docker.sock:/var/run/docker.sock'
     }
-}
-
-
+  }
 
   environment {
     SONAR_URL        = 'http://20.220.31.252:9000'
@@ -34,10 +26,10 @@ pipeline {
     stage('Build & Test') {
       steps {
         sh '''
-          echo "=== BUILD & TEST STAGE STARTED ==="
+          echo "=== BUILD & TEST STARTED ==="
           cd spring-boot-app
           mvn clean package
-          echo "=== BUILD & TEST STAGE COMPLETED ==="
+          echo "=== BUILD & TEST COMPLETED ==="
         '''
       }
     }
@@ -46,33 +38,47 @@ pipeline {
       steps {
         withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
           sh '''
-            echo "=== SONARQUBE ANALYSIS STAGE STARTED ==="
+            echo "=== SONAR ANALYSIS STARTED ==="
             cd spring-boot-app
+
             mvn sonar:sonar \
-              -Dsonar.login=$SONAR_AUTH_TOKEN \
+              -Dsonar.token=$SONAR_AUTH_TOKEN \
               -Dsonar.host.url=${SONAR_URL}
-            echo "=== SONARQUBE ANALYSIS STAGE COMPLETED ==="
+
+            echo "=== SONAR ANALYSIS COMPLETED ==="
           '''
         }
       }
     }
-    
+
+    stage('Install Docker CLI in Agent') {
+      steps {
+        sh '''
+          echo "=== INSTALLING DOCKER CLI ==="
+          apt-get update
+          apt-get install -y docker.io
+          echo "=== DOCKER CLI INSTALLED ==="
+        '''
+      }
+    }
+
     stage('Build & Push Docker Image to ACR') {
       steps {
         script {
+
           sh '''
-            echo "=== DOCKER BUILD STAGE STARTED ==="
+            echo "=== DOCKER BUILD STARTED ==="
             cd spring-boot-app
             docker build -t ${DOCKER_IMAGE} .
-            echo "=== DOCKER BUILD STAGE COMPLETED ==="
+            echo "=== DOCKER BUILD COMPLETED ==="
           '''
 
-          def dockerImage = docker.image("${DOCKER_IMAGE}")
+          def img = docker.image("${DOCKER_IMAGE}")
 
           docker.withRegistry("https://${ACR_LOGIN_SERVER}", "acr-cred") {
             echo "=== PUSHING IMAGE TO ACR ==="
-            dockerImage.push()
-            echo "=== IMAGE PUSHED SUCCESSFULLY ==="
+            img.push()
+            echo "=== PUSH COMPLETE ==="
           }
         }
       }
