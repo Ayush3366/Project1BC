@@ -8,10 +8,11 @@ pipeline {
   // Docker agent with Maven + Java 17 + Docker CLI
   agent {
     docker {
-        image 'maven:3.9.6-eclipse-temurin-17'
+        image 'maven:3.9.6-eclipse-temurin-17-docker'
         args '-v /var/run/docker.sock:/var/run/docker.sock'
     }
 }
+
 
 
   environment {
@@ -55,17 +56,6 @@ pipeline {
         }
       }
     }
-
-      stage('Install Docker CLI in Container') {
-          steps {
-              sh '''
-                  echo "=== INSTALLING DOCKER CLI ==="
-                  apt-get update
-                  apt-get install -y docker.io
-              '''
-          }
-      }
-
     
     stage('Build & Push Docker Image to ACR') {
       steps {
