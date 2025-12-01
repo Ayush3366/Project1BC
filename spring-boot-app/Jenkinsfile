@@ -22,7 +22,7 @@ pipeline {
       image 'maven:3.9.6-eclipse-temurin-17'
       // run container as root and mount host Docker socket so
       // Jenkins inside container can build and push Docker images
-      args '--user root -v /var/run/docker.sock:/var/run/docker.sock'
+      args '-v /var/run/docker.sock:/var/run/docker.sock'
     }
   }
 
